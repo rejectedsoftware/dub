@@ -556,10 +556,15 @@ class Dub {
 			BuildSettingsTemplate tcinfo = m_project.rootPackage.recipe.getConfiguration(config).buildSettings;
 			tcinfo.targetType = TargetType.executable;
 			tcinfo.targetName = test_config;
-			// HACK for vibe.d's legacy main() behavior:
-			tcinfo.versions[""] ~= "VibeCustomMain";
-			m_project.rootPackage.recipe.buildSettings.versions[""] = m_project.rootPackage.recipe.buildSettings.versions.get("", null).remove!(v => v == "VibeDefaultMain");
-			// TODO: remove this ^ once vibe.d has removed the default main implementation
+
+			if (lbuildsettings.targetType != TargetType.executable) {
+				// HACK for vibe.d's legacy main() behavior (for libraries that depend on an old
+				// vibe version).
+				m_project.rootPackage.recipe.buildSettings.versions[""] = m_project.rootPackage.recipe.buildSettings.versions.get("", null).remove!(v => v == "VibeDefaultMain");
+				tcinfo.versions[""] ~= "VibeCustomMain";
+				// TODO: remove this ^ once vibe.d has removed the default main implementation
+				tcinfo.versions[""] ~= "DubTestMain";
+			}
 
 			auto mainfil = tcinfo.mainSourceFile;
 			if (!mainfil.length) mainfil = m_project.rootPackage.recipe.buildSettings.mainSourceFile;
@@ -577,11 +582,6 @@ class Dub {
 			foreach (file; lbuildsettings.sourceFiles) {
 				if (file.endsWith(".d")) {
 					auto fname = Path(file).head.toString();
-					if (Path(file).relativeTo(m_project.rootPackage.path) == Path(mainfil)) {
-						logWarn("Excluding main source file %s from test.", mainfil);
-						tcinfo.excludedSourceFiles[""] ~= mainfil;
-						continue;
-					}
 					if (fname == "package.d") {
 						logWarn("Excluding package.d file from test due to https://issues.dlang.org/show_bug.cgi?id=11847");
 						continue;
@@ -599,11 +599,13 @@ class Dub {
 				scope(exit) fil.close();
 				fil.write("module dub_test_root;\n");
 				fil.write("import std.typetuple;\n");
-				foreach (mod; import_modules) fil.write(format("static import %s;\n", mod));
+				// Rename imports to avoid name collisions.
+				foreach (i, mod; import_modules) fil.write(format("static import m%s = %s;\n", i, mod));
 				fil.write("alias allModules = TypeTuple!(");
 				foreach (i, mod; import_modules) {
 					if (i > 0) fil.write(", ");
-					fil.write(mod);
+					fil.write("m");
+					fil.write(i.to!string);
 				}
 				fil.write(");\n");
 				if (custommodname.length) {
@@ -613,8 +615,23 @@ class Dub {
 						import std.stdio;
 						import core.runtime;
 
-						void main() { writeln("All unit tests have been run successfully."); }
-						shared static this() {
+						// libraries need a main function
+						version (DubTestMain) void main() {}
+
+						bool defaultUnitTester() {
+							import core.stdc.stdlib : exit;
+							import core.runtime : Runtime;
+							foreach (modul; allModules)
+								foreach (test; __traits(getUnitTests, modul))
+									test();
+							writeln("All unit tests have been run successfully.");
+							Runtime.terminate;
+							exit(0);
+							return false;
+						}
+
+						shared static this()
+						{
 							version (Have_tested) {
 								import tested;
 								import core.runtime;
@@ -622,6 +639,11 @@ class Dub {
 								Runtime.moduleUnitTester = () => true;
 								//runUnitTests!app(new JsonTestResultWriter("results.json"));
 								enforce(runUnitTests!allModules(new ConsoleTestResultWriter), "Unit tests failed.");
+							} else {
+								import core.runtime : Runtime;
+								if (Runtime.moduleUnitTester is null) {
+									Runtime.moduleUnitTester = &defaultUnitTester;
+								}
 							}
 						}
 					});
