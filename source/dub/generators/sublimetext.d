@@ -9,9 +9,9 @@ module dub.generators.sublimetext;
 
 import dub.compilers.compiler;
 import dub.generators.generator;
-import dub.internal.vibecompat.core.log;
 import dub.internal.vibecompat.data.json;
 import dub.internal.vibecompat.inet.path;
+import dub.logging;
 import dub.packagemanager;
 import dub.project;
 
@@ -49,7 +49,7 @@ class SublimeTextGenerator : ProjectGenerator {
 
 		write(projectPath, jsonString.data);
 
-		logInfo("Project '%s' generated.", projectPath);
+		logInfo("Generated", Color.green, "%s", projectPath);
 	}
 }
 

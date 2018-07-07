@@ -12,9 +12,9 @@ import dub.dependency;
 import dub.dependencyresolver;
 import dub.internal.utils;
 import dub.internal.vibecompat.core.file;
-import dub.internal.vibecompat.core.log;
 import dub.internal.vibecompat.data.json;
 import dub.internal.vibecompat.inet.url;
+import dub.logging;
 import dub.package_;
 import dub.packagemanager;
 import dub.packagesuppliers;
@@ -301,18 +301,18 @@ class Dub {
 	version(Windows)
 	private void migrateRepositoryFromRoaming(NativePath roamingDir, NativePath localDir)
 	{
-        immutable roamingDirPath = roamingDir.toNativeString();
-	    if (!existsDirectory(roamingDir)) return;
+		immutable roamingDirPath = roamingDir.toNativeString();
+		if (!existsDirectory(roamingDir)) return;
 
-        immutable localDirPath = localDir.toNativeString();
-        logInfo("Detected a package cache in " ~ roamingDirPath ~ ". This will be migrated to " ~ localDirPath ~ ". Please wait...");
-        if (!existsDirectory(localDir))
-        {
-            mkdirRecurse(localDirPath);
-        }
+		immutable localDirPath = localDir.toNativeString();
+		logInfo("Detected a package cache in " ~ roamingDirPath ~ ". This will be migrated to " ~ localDirPath ~ ". Please wait...");
+		if (!existsDirectory(localDir))
+		{
+			mkdirRecurse(localDirPath);
+		}
 
-        runCommand("xcopy /s /e /y " ~ roamingDirPath ~ " " ~ localDirPath ~ " > NUL");
-        rmdirRecurse(roamingDirPath);
+		runCommand("xcopy /s /e /y " ~ roamingDirPath ~ " " ~ localDirPath ~ " > NUL");
+		rmdirRecurse(roamingDirPath);
 	}
 
 
@@ -550,19 +550,19 @@ class Dub {
 				if (basename == rootbasename) continue;
 
 				if (!m_project.selections.hasSelectedVersion(basename)) {
-					logInfo("Non-selected package %s is available with version %s.",
-						basename, ver);
+					logInfo("Upgrade", Color.yellow,
+						"Non-selected package %s is available with version %s", basename, ver);
 					any = true;
 					continue;
 				}
 				auto sver = m_project.selections.getSelectedVersion(basename);
 				if (!sver.path.empty) continue;
 				if (ver.version_ <= sver.version_) continue;
-				logInfo("Package %s can be upgraded from %s to %s.",
-					basename, sver, ver);
+				logInfo("Upgrade", Color.yellow, "%s can be upgraded %s -> %s",
+					basename.color(Mode.bold), sver, ver);
 				any = true;
 			}
-			if (any) logInfo("Use \"dub upgrade\" to perform those changes.");
+			if (any) logInfo("Use \"dub upgrade\" to perform those changes");
 			return;
 		}
 
@@ -775,7 +775,7 @@ class Dub {
 	/// Cleans intermediate/cache files of the given package
 	void cleanPackage(NativePath path)
 	{
-		logInfo("Cleaning package at %s...", path.toNativeString());
+		logInfo("Cleaning", Color.green, "package at %s", path.toNativeString());
 		enforce(!Package.findPackageFile(path).empty, "No package found.", path.toNativeString());
 
 		// TODO: clear target files and copy files
@@ -833,13 +833,13 @@ class Dub {
 					packageId, ver, placement);
 				return existing;
 			} else {
-				logInfo("Removing %s %s to prepare replacement with a new version.", packageId, ver);
+				logInfo("Removing", Color.yellow, "%s %s to prepare replacement with a new version", packageId.color(Mode.bold), ver);
 				if (!m_dryRun) m_packageManager.remove(existing);
 			}
 		}
 
-		if (reason.length) logInfo("Fetching %s %s (%s)...", packageId, ver, reason);
-		else logInfo("Fetching %s %s...", packageId, ver);
+		if (reason.length) logInfo("Fetching", Color.yellow, "%s %s (%s)", packageId.color(Mode.bold), ver, reason);
+		else logInfo("Fetching", Color.yellow, "%s %s", packageId.color(Mode.bold), ver);
 		if (m_dryRun) return null;
 
 		logDebug("Acquiring package zip file");
@@ -897,7 +897,7 @@ class Dub {
 	*/
 	void remove(in Package pack)
 	{
-		logInfo("Removing %s in %s", pack.name, pack.path.toNativeString());
+		logInfo("Removing", Color.yellow, "%s (in %s)", pack.name.color(Mode.bold), pack.path.toNativeString());
 		if (!m_dryRun) m_packageManager.remove(pack);
 	}
 
@@ -959,7 +959,6 @@ class Dub {
 		foreach(pack; packages) {
 			try {
 				remove(pack);
-				logInfo("Removed %s, version %s.", package_id, pack.version_);
 			} catch (Exception e) {
 				logError("Failed to remove %s %s: %s", package_id, pack.version_, e.msg);
 				logInfo("Continuing with other packages (if any).");
@@ -1189,7 +1188,7 @@ class Dub {
 		initPackage(path, depVers, type, format, recipe_callback);
 
 		//Act smug to the user.
-		logInfo("Successfully created an empty project in '%s'.", path.toNativeString());
+		logInfo("Success", Color.green, "created empty project in %s", path.toNativeString());
 	}
 
 	/** Converts the package recipe of the loaded root package to the given format.

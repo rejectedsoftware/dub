@@ -11,9 +11,10 @@ public import dub.compilers.buildsettings;
 public import dub.platform : BuildPlatform, matchesSpecification;
 
 import dub.internal.vibecompat.core.file;
-import dub.internal.vibecompat.core.log;
 import dub.internal.vibecompat.data.json;
 import dub.internal.vibecompat.inet.path;
+
+import dub.logging;
 
 import std.algorithm;
 import std.array;
@@ -112,7 +113,7 @@ interface Compiler {
 			throw new Exception(format("%s failed with exit code %s. This may indicate that the process has run out of memory.",
 				args[0], status));
 		}
-		enforce(status == 0, format("%s failed with exit code %s.", args[0], status));
+		enforce(status == 0, format("%s failed with exit code %s", args[0], status));
 	}
 
 	/// Compiles platform probe file with the specified compiler and parses its output.
