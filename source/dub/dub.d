@@ -556,7 +556,12 @@ class Dub {
 			return;
 		}
 
-		foreach (p; versions.byKey) {
+		import std.parallelism : TaskPool, totalCPUs;
+		// Avoid being blocked by a slow download (even on a single-threaded machines)
+		auto amountOfThreads = totalCPUs.clamp(3, 6);
+		logInfo("Resolving in parallel with %s threads", amountOfThreads);
+        auto taskPool = new TaskPool(amountOfThreads);
+		foreach (p; taskPool.parallel(versions.byKey, 1)) {
 			auto ver = versions[p]; // Workaround for DMD 2.070.0 AA issue (crashes in aaApply2 if iterating by key+value)
 			assert(!p.canFind(":"), "Resolved packages contain a sub package!?: "~p);
 			Package pack;
@@ -582,14 +587,15 @@ class Dub {
 			fetchOpts |= (options & UpgradeOptions.preRelease) != 0 ? FetchOptions.usePrerelease : FetchOptions.none;
 			if (!pack) fetch(p, ver, defaultPlacementLocation, fetchOpts, "getting selected version");
 			if ((options & UpgradeOptions.select) && p != m_project.rootPackage.name) {
-				if (ver.path.empty) m_project.selections.selectVersion(p, ver.version_);
+				if (ver.path.empty) synchronized m_project.selections.selectVersion(p, ver.version_);
 				else {
 					NativePath relpath = ver.path;
 					if (relpath.absolute) relpath = relpath.relativeTo(m_project.rootPackage.path);
-					m_project.selections.selectVersion(p, relpath);
+					synchronized m_project.selections.selectVersion(p, relpath);
 				}
 			}
 		}
+		taskPool.stop();
 
 		string[] missingDependenciesBeforeReinit = m_project.missingDependencies;
 		m_project.reinit();
