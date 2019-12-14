@@ -592,6 +592,7 @@ struct GeneratorSettings {
 	// only used for generator "build"
 	bool run, force, direct, rdmd, tempBuild, parallelBuild;
 	string[] runArgs;
+	NativePath buildCacheDirectory;
 	void delegate(int status, string output) compileCallback;
 	void delegate(int status, string output) linkCallback;
 	void delegate(int status, string output) runCallback;
