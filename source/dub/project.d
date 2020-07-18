@@ -230,10 +230,16 @@ class Project {
 
 		This will emit warnings to `stderr` if any discouraged names or
 		dependency patterns are found.
+
+		Returns: 
 	*/
-	void validate()
+	ValidationResult validate()
 	{
-		// some basic package lint
+		ValidationResult validity;
+		foreach (ref member; validity.tupleof)
+			member = true; // make all succeed by default.
+
+		// some basic package name lint
 		m_rootPackage.warnOnSpecialCompilerFlags();
 		string nameSuggestion() {
 			string ret;
@@ -248,8 +254,10 @@ class Project {
 			return ret;
 		}
 		if (m_rootPackage.name != m_rootPackage.name.toLower()) {
+			validity.validName = false;
 			logWarn(`WARNING: DUB package names should always be lower case. %s`, nameSuggestion());
 		} else if (!m_rootPackage.recipe.name.all!(ch => ch >= 'a' && ch <= 'z' || ch >= '0' && ch <= '9' || ch == '-' || ch == '_')) {
+			validity.validName = false;
 			logWarn(`WARNING: DUB package names may only contain alphanumeric characters, `
 				~ `as well as '-' and '_'. %s`, nameSuggestion());
 		}
@@ -257,6 +265,8 @@ class Project {
 
 		foreach (d; m_rootPackage.getAllDependencies())
 			if (d.spec.isExactVersion && d.spec.version_.isBranch) {
+				validity.allNumberedVersions = false;
+				// TODO: dub.selections.json is probably not supposed to be edited manually?
 				logWarn("WARNING: A deprecated branch based version specification is used "
 					~ "for the dependency %s. Please use numbered versions instead. Also "
 					~ "note that you can still use the %s file to override a certain "
@@ -266,13 +276,16 @@ class Project {
 
 		// search for orphan sub configurations
 		void warnSubConfig(string pack, string config) {
+			validity.allConfigurationDependenciesFound = false;
 			logWarn("The sub configuration directive \"%s\" -> \"%s\" "
 				~ "references a package that is not specified as a dependency "
 				~ "and will have no effect.", pack, config);
 		}
+
 		void checkSubConfig(string pack, string config) {
 			auto p = getDependency(pack, true);
 			if (p && !p.configurations.canFind(config)) {
+				validity.allConfigurationsFound = false;
 				logWarn("The sub configuration directive \"%s\" -> \"%s\" "
 					~ "references a configuration that does not exist.",
 					pack, config);
@@ -303,7 +316,8 @@ class Project {
 				if (m_selections.hasSelectedVersion(basename)) {
 					auto selver = m_selections.getSelectedVersion(basename);
 					if (d.spec.merge(selver) == Dependency.invalid) {
-						logWarn("Selected package %s %s does not match the dependency specification %s in package %s. Need to \"dub upgrade\"?",
+						validity.matchingSelections = false;
+						logWarn("Selected package %s %s does not match the dependency specification %s in package %s.",
 							basename, selver, d.spec, pack.name);
 					}
 				}
@@ -315,6 +329,29 @@ class Project {
 			}
 		}
 		validateDependenciesRec(m_rootPackage);
+
+		return validity;
+	}
+
+	///
+	static struct ValidationResult
+	{
+		///
+		bool validName;
+		///
+		bool allNumberedVersions;
+		///
+		bool allConfigurationDependenciesFound;
+		///
+		bool allConfigurationsFound;
+		///
+		bool matchingSelections;
+
+		/// Returns: true if building should abort because of potential inconsistencies or issues in the build process.
+		bool hasFatalIssues() const
+		{
+			return !matchingSelections;
+		}
 	}
 
 	/// Reloads dependencies.
