@@ -123,7 +123,7 @@ class Dub {
 	private {
 		bool m_dryRun = false;
 		PackageManager m_packageManager;
-		PackageSupplier[] m_packageSuppliers;
+		PackageSupplierList m_packageSuppliers;
 		NativePath m_rootPath;
 		SpecialDirs m_dirs;
 		DubConfig m_config;
@@ -482,15 +482,10 @@ class Dub {
 						continue;
 				} else {
 					if (m_packageManager.getPackage(p, dep.version_)) continue;
-					foreach (ps; m_packageSuppliers) {
-						try {
-							auto versions = ps.getVersions(p);
-							if (versions.canFind!(v => dep.matches(v)))
-								continue next_pack;
-						} catch (Exception e) {
-							logWarn("Error querying versions for %s, %s: %s", p, ps.description, e.msg);
-							logDebug("Full error: %s", e.toString().sanitize());
-						}
+					foreach (ps; m_packageSuppliers.tryAllOrWarn!"querying versions for %s"(p)) {
+						auto versions = ps.getVersions(p);
+						if (versions.canFind!(v => dep.matches(v)))
+							continue next_pack;
 					}
 				}
 
@@ -834,20 +829,9 @@ class Dub {
 	Package fetch(string packageId, const Dependency dep, PlacementLocation location, FetchOptions options, string reason = "")
 	{
 		auto basePackageName = getBasePackageName(packageId);
-		Json pinfo;
 		PackageSupplier supplier;
-		foreach(ps; m_packageSuppliers){
-			try {
-				pinfo = ps.fetchPackageRecipe(basePackageName, dep, (options & FetchOptions.usePrerelease) != 0);
-				if (pinfo.type == Json.Type.null_)
-					continue;
-				supplier = ps;
-				break;
-			} catch(Exception e) {
-				logWarn("Package %s not found for %s: %s", packageId, ps.description, e.msg);
-				logDebug("Full error: %s", e.toString().sanitize());
-			}
-		}
+		Json pinfo = m_packageSuppliers
+			.getFirstPackageRecipe(basePackageName, dep, (options & FetchOptions.usePrerelease) != 0, supplier);
 		enforce(pinfo.type != Json.Type.undefined, "No package "~packageId~" was found matching the dependency "~dep.toString());
 		string ver = pinfo["version"].get!string;
 
@@ -1134,12 +1118,8 @@ class Dub {
 	{
 		import std.typecons : Tuple, tuple;
 		Tuple!(string, PackageSupplier.SearchResult[])[] results;
-		foreach (ps; this.m_packageSuppliers) {
-			try
-				results ~= tuple(ps.description, ps.searchPackages(query));
-			catch (Exception e) {
-				logWarn("Searching %s for '%s' failed: %s", ps.description, query, e.msg);
-			}
+		foreach (ps; this.m_packageSuppliers.tryAllOrWarn!"searching for '%s'"(query)) {
+			results ~= tuple(ps.description, ps.searchPackages(query));
 		}
 		return results.filter!(tup => tup[1].length);
 	}
@@ -1156,11 +1136,8 @@ class Dub {
 	{
 		Version[] versions;
 		auto basePackageName = getBasePackageName(name);
-		foreach (ps; this.m_packageSuppliers) {
-			try versions ~= ps.getVersions(basePackageName);
-			catch (Exception e) {
-				logWarn("Failed to get versions for package %s on provider %s: %s", name, ps.description, e.msg);
-			}
+		foreach (ps; this.m_packageSuppliers.tryAllOrWarn!"getting versions for package %s"(name)) {
+			versions ~= ps.getVersions(basePackageName);
 		}
 		return versions.sort().uniq.array;
 	}
@@ -1454,13 +1431,15 @@ enum FetchOptions
 enum UpgradeOptions
 {
 	none = 0,
-	upgrade = 1<<1, /// Upgrade existing packages
+	/// If this is set (default on dub upgrade command) update to highest version from package suppliers.
+	/// If this is unset (--missing-only flag) only download what is specified in the selections file exactly.
+	upgrade = 1<<1,
 	preRelease = 1<<2, /// inclde pre-release versions in upgrade
-	forceRemove = 1<<3, /// Deprecated, does nothing.
+	/* deprecated("has no effect") */ forceRemove = 1<<3,
 	select = 1<<4, /// Update the dub.selections.json file with the upgraded versions
 	dryRun = 1<<5, /// Instead of downloading new packages, just print a message to notify the user of their existence
-	/*deprecated*/ printUpgradesOnly = dryRun, /// deprecated, use dryRun instead
-	/*deprecated*/ useCachedResult = 1<<6, /// deprecated, has no effect
+	/* deprecated("use dryRun instead") */ printUpgradesOnly = dryRun,
+	/* deprecated("has no effect") */ useCachedResult = 1<<6,
 	noSaveSelections = 1<<7, /// Don't store updated selections on disk
 }
 
@@ -1501,7 +1480,7 @@ private class DependencyVersionResolver : DependencyResolver!(Dependency, Depend
 	{
 		m_rootPackage = root;
 		m_selectedVersions = selected_versions;
-		return super.resolve(TreeNode(root.name, Dependency(root.version_)), (m_options & UpgradeOptions.printUpgradesOnly) == 0);
+		return super.resolve(TreeNode(root.name, Dependency(root.version_)), (m_options & UpgradeOptions.dryRun) == 0);
 	}
 
 	protected bool isFixedPackage(string pack)
@@ -1526,21 +1505,16 @@ private class DependencyVersionResolver : DependencyResolver!(Dependency, Depend
 		foreach (p; m_dub.packageManager.getPackageIterator(pack))
 			versions ~= p.version_;
 
-		foreach (ps; m_dub.m_packageSuppliers) {
-			try {
-				auto vers = ps.getVersions(pack);
-				vers.reverse();
-				if (!vers.length) {
-					logDiagnostic("No versions for %s for %s", pack, ps.description);
-					continue;
-				}
-
-				versions ~= vers;
-				break;
-			} catch (Exception e) {
-				logWarn("Package %s not found in %s: %s", pack, ps.description, e.msg);
-				logDebug("Full error: %s", e.toString().sanitize);
+		foreach (ps; m_dub.m_packageSuppliers.tryAllOrWarnRaw!"Package %s not found"(pack)) {
+			auto vers = ps.getVersions(pack);
+			vers.reverse();
+			if (!vers.length) {
+				logDiagnostic("No versions for %s for %s", pack, ps.description);
+				continue;
 			}
+
+			versions ~= vers;
+			break;
 		}
 
 		// sort by version, descending, and remove duplicates
@@ -1723,7 +1697,7 @@ private class DependencyVersionResolver : DependencyResolver!(Dependency, Depend
 
 		auto rootpack = name.split(":")[0];
 
-		foreach (ps; m_dub.m_packageSuppliers) {
+		foreach (ps; m_dub.m_packageSuppliers.all) {
 			if (rootpack == name) {
 				try {
 					auto desc = ps.fetchPackageRecipe(name, dep, prerelease);
