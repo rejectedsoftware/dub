@@ -12,9 +12,9 @@ import dub.dependency;
 import dub.dub;
 import dub.generators.generator;
 import dub.internal.vibecompat.core.file;
-import dub.internal.vibecompat.core.log;
 import dub.internal.vibecompat.data.json;
 import dub.internal.vibecompat.inet.path;
+import dub.logging;
 import dub.package_;
 import dub.packagemanager;
 import dub.packagesuppliers;
@@ -162,6 +162,15 @@ struct CommandLineHandler
 		else
 		{
 			options.root_path = options.root_path.absolutePath.buildNormalizedPath;
+		}
+
+		if (options.colors_mode == "" || options.colors_mode == "auto") {
+			// we already detected whether to enable colors or not with initLogging() above
+			// this if case is here just to make the else below work correctly
+		} else if (options.colors_mode == "on") {
+			setLoggingColorsEnabled(true); // enable colors, no matter what
+		} else if (options.colors_mode == "off") {
+			setLoggingColorsEnabled(false); // disable colors, no matter what
 		}
 	}
 
@@ -391,6 +400,10 @@ unittest {
 */
 int runDubCommandLine(string[] args)
 {
+	// Initialize the logging module, ensure that whether stdout/stderr are a TTY
+	// or not is detected in order to disable colors if the output isn't a console
+	initLogging();
+
 	logDiagnostic("DUB version %s", getDUBVersion());
 
 	version(Windows){
@@ -514,6 +527,7 @@ struct CommonOptions {
 	bool help, annotate, bare;
 	string[] registry_urls;
 	string root_path;
+	string colors_mode;
 	SkipPackageSuppliers skipRegistry = SkipPackageSuppliers.none;
 	PlacementLocation placementLocation = PlacementLocation.user;
 
@@ -541,6 +555,12 @@ struct CommonOptions {
 		args.getopt("q|quiet", &quiet, ["Only print warnings and errors"]);
 		args.getopt("verror", &verror, ["Only print errors"]);
 		args.getopt("vquiet", &vquiet, ["Print no messages"]);
+		args.getopt("colors", &colors_mode, [
+			"Confiugre color output",
+			"  auto: Automatically turn on/off colors (default)",
+			"  on: Force colors enabled",
+			"  off: Force colors disabled"
+			]);
 		args.getopt("cache", &placementLocation, ["Puts any fetched packages in the specified location [local|system|user]."]);
 
 		version_ = args.hasAppVersion;
@@ -1760,7 +1780,7 @@ class UpgradeCommand : Command {
 		enforceUsage(app_args.length == 0, "Unexpected application arguments.");
 		enforceUsage(!m_verify, "--verify is not yet implemented.");
 		enforce(loadCwdPackage(dub, true), "Failed to load package.");
-		logInfo("Upgrading project in %s", dub.projectPath.toNativeString());
+		logInfo("Upgrading", Color.yellow, "project in %s", dub.projectPath.toNativeString());
 		auto options = UpgradeOptions.upgrade|UpgradeOptions.select;
 		if (m_missingOnly) options &= ~UpgradeOptions.upgrade;
 		if (m_prerelease) options |= UpgradeOptions.preRelease;
@@ -1840,10 +1860,12 @@ class FetchCommand : FetchRemoveCommand {
 		} else {
 			try {
 				dub.fetch(name, Dependency(">=0.0.0"), location, fetchOpts);
+				logInfo("Finished", Color.green, "%s fetched", name.color(Mode.bold));
 				logInfo(
 					"Please note that you need to use `dub run <pkgname>` " ~
 					"or add it to dependencies of your package to actually use/run it. " ~
-					"dub does not do actual installation of packages outside of its own ecosystem.");
+					"dub does not do actual installation of packages outside of its own ecosystem."
+				);
 			}
 			catch(Exception e){
 				logInfo("Getting a release version failed: %s", e.msg);
@@ -2081,10 +2103,10 @@ class ListCommand : Command {
 		const pname = pinfo.name;
 		const pvlim = Dependency(pinfo.version_ == "" ? "*" : pinfo.version_);
 		enforceUsage(app_args.length == 0, "The list command supports no application arguments.");
-		logInfo("Packages present in the system and known to dub:");
+		logInfoNoTag("Packages present in the system and known to dub:");
 		foreach (p; dub.packageManager.getPackageIterator()) {
 			if ((pname == "" || pname == p.name) && pvlim.matches(p.version_))
-				logInfo("  %s %s: %s", p.name, p.version_, p.path.toNativeString());
+				logInfo("  %s %s: %s", p.name.color(Mode.bold), p.version_, p.path.toNativeString());
 		}
 		logInfo("");
 		return 0;
@@ -2119,9 +2141,9 @@ class SearchCommand : Command {
 		justify += (~justify & 3) + 1; // round to next multiple of 4
 		foreach (desc, matches; res)
 		{
-			logInfo("==== %s ====", desc);
+			logInfoNoTag("==== %s ====", desc);
 			foreach (m; matches)
-				logInfo("%s%s", leftJustify(m.name ~ " (" ~ m.version_ ~ ")", justify), m.description);
+				logInfoNoTag("  %s%s", leftJustify(m.name ~ " (" ~ m.version_ ~ ")", justify), m.description);
 		}
 		return 0;
 	}

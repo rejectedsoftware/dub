@@ -10,9 +10,9 @@ module dub.packagemanager;
 import dub.dependency;
 import dub.internal.utils;
 import dub.internal.vibecompat.core.file;
-import dub.internal.vibecompat.core.log;
 import dub.internal.vibecompat.data.json;
 import dub.internal.vibecompat.inet.path;
+import dub.logging;
 import dub.package_;
 
 import std.algorithm : countUntil, filter, sort, canFind, remove;
@@ -585,7 +585,7 @@ class PackageManager {
 
 		logDebug("About to delete root folder for package '%s'.", pack.path);
 		rmdirRecurse(pack.path.toNativeString());
-		logInfo("Removed package: '"~pack.name~"'");
+		logInfo("Removed", Color.yellow, "%s %s", pack.name.color(Mode.bold), pack.version_);
 	}
 
 	/// Compatibility overload. Use the version without a `force_remove` argument instead.
