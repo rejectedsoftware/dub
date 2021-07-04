@@ -55,6 +55,8 @@ void initPackage(NativePath root_path, string[string] deps, string type,
 	PackageRecipe p;
 	p.name = root_path.head.name.toLower();
 	p.authors ~= username;
+	// Use proprietary as conservative default, so that we don't announce a more
+	// permissive license than actually chosen in case the dub.json wasn't updated.
 	p.license = "proprietary";
 	foreach (pack, v; deps) {
 		import std.ascii : isDigit;
