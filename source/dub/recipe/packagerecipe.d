@@ -80,6 +80,8 @@ struct PackageRecipe {
 	string[] authors;
 	string copyright;
 	string license;
+	string donationUrl;
+	string donationDetail;
 	string[] ddoxFilterArgs;
 	string ddoxTool;
 	BuildSettingsTemplate buildSettings;
